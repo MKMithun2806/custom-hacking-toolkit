@@ -1,1 +1,12 @@
-REM Title: INPROGRESS
+ID 046d:c31c
+REM Title: ASCII Rickroll
+REM Author: Mithun Krish
+REM Target: Windows 10/11
+REM Category: Pranks
+DELAY 2000
+GUI r
+DELAY 500
+BACKSPACE
+DELAY 200
+STRING powershell -NoP -Command "Start-Process powershell -ArgumentList '-NoExit', '-Command', 'curl -L https://ascii.live/rick' -WindowStyle Maximized"
+ENTER

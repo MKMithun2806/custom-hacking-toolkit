@@ -15,7 +15,7 @@ Decode it in http://192.168.1.15:8081/base64-string-converter
 The Process:
 
 
-1. The Physical Handshake
+1. The Physical Handshakea
 ID 046d:c31c: The Flipper Zero tells the Samsung Book 4: "I am not a hacking tool; I am a Logitech USB Keyboard." * DELAY 3000: It waits 3 seconds for Windows to load the "keyboard" drivers. Because it’s a known Logitech ID, Windows skips the "Setting up device" notification, which keeps it discrete.
 
 2. Opening the "Backdoor"
