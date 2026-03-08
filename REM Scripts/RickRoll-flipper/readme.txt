@@ -1,0 +1,1 @@
+Its in progress but the basic idea is to rickroll anyone with one badusb script
