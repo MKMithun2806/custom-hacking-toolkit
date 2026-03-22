@@ -4,7 +4,7 @@ let serial = require("serial");
 
 // --- CONFIGURATION ---
 // Your specific n8n webhook (Local IP)
-const WEBHOOK_BASE = "http://192.168.1.15:5678/webhook/Watchdog-flipper?target=";
+const WEBHOOK_BASE = "http://192.168.1.15:5678/webhook/scan?target=";
 const BAUD_RATE = 115200; // Standard Marauder Baud
 // ---------------------
 
