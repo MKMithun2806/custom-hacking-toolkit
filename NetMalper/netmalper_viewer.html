@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>netmalper — recon graph</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;800&display=swap');
+
+  :root {
+    --bg:        #0a0a0f;
+    --bg2:       #111118;
+    --bg3:       #1a1a24;
+    --border:    #2a2a3a;
+    --border2:   #3a3a50;
+    --text:      #e2e2f0;
+    --muted:     #6b6b8a;
+    --dim:       #3a3a55;
+
+    --root:      #ff6b6b;
+    --subdomain: #4ecdc4;
+    --ip:        #45b7d1;
+    --port:      #96ceb4;
+    --endpoint:  #ffeaa7;
+    --dns:       #a29bfe;
+    --cname:     #fd79a8;
+    --service:   #81ecec;
+
+    --glow-root:  rgba(255,107,107,0.4);
+    --glow-sub:   rgba(78,205,196,0.3);
+    --glow-ip:    rgba(69,183,209,0.3);
+    --glow-port:  rgba(150,206,180,0.3);
+    --glow-ep:    rgba(255,234,167,0.3);
+    --glow-dns:   rgba(162,155,254,0.3);
+
+    --link-color:     rgba(100,100,160,0.5);
+    --link-highlight: rgba(200,200,255,0.9);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  /* ── canvas ── */
+  #canvas-container {
+    position: fixed; inset: 0;
+  }
+  svg {
+    width: 100%; height: 100%;
+    cursor: grab;
+  }
+  svg.dragging { cursor: grabbing; }
+
+  /* ── top bar ── */
+  #topbar {
+    position: fixed; top: 0; left: 0; right: 0;
+    height: 48px;
+    background: rgba(10,10,15,0.92);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 16px;
+    padding: 0 20px;
+    backdrop-filter: blur(8px);
+    z-index: 100;
+  }
+  #logo {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 15px;
+    letter-spacing: 0.08em;
+    color: var(--root);
+    text-transform: uppercase;
+  }
+  #logo span { color: var(--muted); font-weight: 400; }
+  #meta-bar {
+    display: flex; gap: 20px; flex: 1;
+    font-size: 11px; color: var(--muted);
+  }
+  .meta-item strong { color: var(--text); }
+  #search-wrap {
+    display: flex; align-items: center; gap: 8px;
+  }
+  #search {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 4px 10px;
+    width: 180px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  #search:focus { border-color: var(--border2); }
+  #search::placeholder { color: var(--muted); }
+
+  /* ── legend ── */
+  #legend {
+    position: fixed; top: 64px; left: 16px;
+    background: rgba(10,10,15,0.88);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    font-size: 10.5px;
+    z-index: 90;
+    backdrop-filter: blur(6px);
+    min-width: 120px;
+  }
+  #legend h4 {
+    font-family: 'Syne', sans-serif;
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 5px; cursor: pointer;
+    opacity: 1; transition: opacity 0.2s;
+  }
+  .legend-item.hidden { opacity: 0.3; }
+  .legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .legend-label { color: var(--text); }
+  .legend-count { color: var(--muted); margin-left: auto; padding-left: 8px; }
+
+  /* ── detail panel ── */
+  #panel {
+    position: fixed; top: 64px; right: 16px;
+    width: 280px;
+    background: rgba(10,10,15,0.92);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+    font-size: 11px;
+    z-index: 90;
+    backdrop-filter: blur(8px);
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
+    transform: translateX(320px);
+    transition: transform 0.25s cubic-bezier(0.16,1,0.3,1);
+  }
+  #panel.visible { transform: translateX(0); }
+  #panel-close {
+    position: absolute; top: 10px; right: 12px;
+    background: none; border: none;
+    color: var(--muted); font-size: 16px;
+    cursor: pointer; line-height: 1;
+  }
+  #panel-close:hover { color: var(--text); }
+  #panel-type {
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  #panel-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 12px;
+    word-break: break-all;
+  }
+  .panel-section {
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+    margin-top: 10px;
+  }
+  .panel-section h5 {
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 7px;
+  }
+  .kv-row {
+    display: flex; gap: 8px;
+    margin-bottom: 4px; align-items: flex-start;
+  }
+  .kv-key  { color: var(--muted); min-width: 80px; flex-shrink: 0; }
+  .kv-val  { color: var(--text); word-break: break-all; }
+  .kv-val.ok  { color: var(--port); }
+  .kv-val.warn { color: var(--endpoint); }
+  .kv-val.danger { color: var(--root); }
+
+  /* connected nodes list */
+  .conn-item {
+    padding: 4px 8px;
+    border-radius: 3px;
+    margin-bottom: 3px;
+    background: var(--bg3);
+    cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+    transition: background 0.15s;
+  }
+  .conn-item:hover { background: var(--border); }
+  .conn-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .conn-label { color: var(--text); flex: 1; word-break: break-all; }
+  .conn-edge { color: var(--muted); font-size: 9px; }
+
+  /* ── controls ── */
+  #controls {
+    position: fixed; bottom: 24px; right: 16px;
+    display: flex; flex-direction: column; gap: 4px;
+    z-index: 90;
+  }
+  .ctrl-btn {
+    width: 32px; height: 32px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 15px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .ctrl-btn:hover { background: var(--border); border-color: var(--border2); }
+
+  /* ── file drop zone / loader ── */
+  #loader {
+    position: fixed; inset: 0;
+    background: var(--bg);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 24px;
+    z-index: 200;
+    transition: opacity 0.4s;
+  }
+  #loader.gone { opacity: 0; pointer-events: none; }
+  #loader h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: 32px; font-weight: 800;
+    color: var(--root);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  #loader h1 span { color: var(--muted); font-weight: 400; }
+  #loader p { color: var(--muted); font-size: 12px; max-width: 360px; text-align: center; line-height: 1.7; }
+
+  #dropzone {
+    border: 1.5px dashed var(--border2);
+    border-radius: 8px;
+    padding: 36px 48px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  #dropzone:hover, #dropzone.drag-over {
+    border-color: var(--subdomain);
+    background: rgba(78,205,196,0.05);
+  }
+  #dropzone .dz-icon { font-size: 32px; margin-bottom: 10px; }
+  #dropzone .dz-main { font-family: 'Syne', sans-serif; font-size: 14px; color: var(--text); margin-bottom: 4px; }
+  #dropzone .dz-sub  { font-size: 11px; color: var(--muted); }
+  #file-input { display: none; }
+
+  .demo-btn {
+    background: none; border: 1px solid var(--border);
+    border-radius: 4px; color: var(--muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; padding: 7px 16px;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .demo-btn:hover { border-color: var(--border2); color: var(--text); }
+
+  /* ── status bar ── */
+  #statusbar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    height: 22px;
+    background: rgba(10,10,15,0.92);
+    border-top: 1px solid var(--border);
+    display: flex; align-items: center;
+    padding: 0 16px; gap: 20px;
+    font-size: 10px; color: var(--muted);
+    z-index: 100;
+  }
+  .sb-item strong { color: var(--text); }
+
+  /* ── node/link styles in SVG ── */
+  .node-circle {
+    cursor: pointer;
+    transition: r 0.15s;
+  }
+  .node-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    fill: var(--text);
+    pointer-events: none;
+    user-select: none;
+  }
+  .link-line {
+    stroke: var(--link-color);
+    stroke-width: 1;
+    fill: none;
+    marker-end: url(#arrow);
+  }
+  .link-line.highlighted {
+    stroke: var(--link-highlight);
+    stroke-width: 1.5;
+  }
+  .link-label-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    fill: var(--dim);
+    pointer-events: none;
+    user-select: none;
+  }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg2); }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- loader / drop zone -->
+<div id="loader">
+  <h1>net<span>malper</span></h1>
+  <p>Drop a <code>_graph.json</code> file from netmalper, or load demo data to explore the graph.</p>
+  <div id="dropzone" onclick="document.getElementById('file-input').click()">
+    <div class="dz-icon">⬡</div>
+    <div class="dz-main">Drop graph.json here</div>
+    <div class="dz-sub">or click to browse</div>
+  </div>
+  <input type="file" id="file-input" accept=".json">
+  <button class="demo-btn" onclick="loadDemo()">Load demo scan</button>
+</div>
+
+<!-- top bar -->
+<div id="topbar" style="display:none">
+  <div id="logo">net<span>malper</span></div>
+  <div id="meta-bar">
+    <span class="meta-item">target: <strong id="m-target">—</strong></span>
+    <span class="meta-item">nodes: <strong id="m-nodes">—</strong></span>
+    <span class="meta-item">edges: <strong id="m-edges">—</strong></span>
+    <span class="meta-item">scanned: <strong id="m-ts">—</strong></span>
+    <span class="meta-item">duration: <strong id="m-dur">—</strong></span>
+    <span class="meta-item"><strong id="m-nmap" style="font-size:10px">—</strong></span>
+    <span class="meta-item"><strong id="m-root" style="font-size:10px">—</strong></span>
+  </div>
+  <div id="search-wrap">
+    <input id="search" placeholder="filter nodes…" oninput="filterNodes(this.value)">
+  </div>
+</div>
+
+<!-- canvas -->
+<div id="canvas-container">
+  <svg id="svg" style="display:none">
+    <defs>
+      <marker id="arrow" markerWidth="6" markerHeight="6"
+              refX="5" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L6,3 z" fill="rgba(100,100,160,0.6)"/>
+      </marker>
+      <marker id="arrow-hl" markerWidth="6" markerHeight="6"
+              refX="5" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L6,3 z" fill="rgba(200,200,255,0.9)"/>
+      </marker>
+      <filter id="glow-root">
+        <feGaussianBlur stdDeviation="4" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="glow-soft">
+        <feGaussianBlur stdDeviation="2.5" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <g id="links-layer"></g>
+    <g id="link-labels-layer"></g>
+    <g id="nodes-layer"></g>
+  </svg>
+</div>
+
+<!-- legend -->
+<div id="legend" style="display:none">
+  <h4>Node types</h4>
+  <div id="legend-items"></div>
+</div>
+
+<!-- detail panel -->
+<div id="panel">
+  <button id="panel-close" onclick="closePanel()">×</button>
+  <div id="panel-type"></div>
+  <div id="panel-title"></div>
+  <div id="panel-body"></div>
+</div>
+
+<!-- zoom controls -->
+<div id="controls" style="display:none">
+  <button class="ctrl-btn" onclick="zoom(1.3)" title="Zoom in">+</button>
+  <button class="ctrl-btn" onclick="zoom(0.77)" title="Zoom out">−</button>
+  <button class="ctrl-btn" onclick="resetView()" title="Reset">⊙</button>
+  <button class="ctrl-btn" onclick="toggleLabels()" title="Toggle labels" id="lbl-btn">𝕃</button>
+</div>
+
+<!-- status bar -->
+<div id="statusbar" style="display:none">
+  <span class="sb-item">drag to pan &nbsp;·&nbsp; scroll to zoom &nbsp;·&nbsp; click node for details</span>
+  <span class="sb-item" id="sb-hover"></span>
+</div>
+
+<script>
+// ── node type config ──────────────────────────────────────────────────────────
+const TYPE_CFG = {
+  root:      { color: '#ff6b6b', glow: 'glow-root', r: 16, zIndex: 10 },
+  subdomain: { color: '#4ecdc4', glow: 'glow-soft', r: 10, zIndex: 5  },
+  ip:        { color: '#45b7d1', glow: 'glow-soft', r: 9,  zIndex: 4  },
+  port:      { color: '#96ceb4', glow: null,         r: 7,  zIndex: 3  },
+  endpoint:  { color: '#ffeaa7', glow: null,         r: 7,  zIndex: 3  },
+  cname:     { color: '#fd79a8', glow: 'glow-soft',  r: 8,  zIndex: 4  },
+  dns_record:{ color: '#a29bfe', glow: null,         r: 7,  zIndex: 3  },
+  service:     { color: '#81ecec', glow: null,         r: 6,  zIndex: 2  },
+  // nmap-specific
+  os_guess:    { color: '#e17055', glow: 'glow-soft',  r: 8,  zIndex: 4  },
+  nse_finding: { color: '#f39c12', glow: null,         r: 6,  zIndex: 3  },
+};
+const typeColor = t => (TYPE_CFG[t] || { color: '#888' }).color;
+const typeR     = t => (TYPE_CFG[t] || { r: 7 }).r;
+
+// ── state ─────────────────────────────────────────────────────────────────────
+let graphData = null;
+let simNodes  = [];
+let simEdges  = [];
+let transform = { x: 0, y: 0, k: 1 };
+let animFrame = null;
+let selectedId = null;
+let hiddenTypes = new Set();
+let showLabels  = true;
+let filterText  = '';
+
+// ── SVG helpers ───────────────────────────────────────────────────────────────
+const svg    = document.getElementById('svg');
+const gLinks = document.getElementById('links-layer');
+const gLbls  = document.getElementById('link-labels-layer');
+const gNodes = document.getElementById('nodes-layer');
+
+function svgEl(tag, attrs = {}) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+// ── force simulation (hand-rolled) ───────────────────────────────────────────
+const REPULSION    = 6000;
+const LINK_DIST    = 90;
+const CENTER_FORCE = 0.04;
+const DAMPING      = 0.82;
+const ALPHA_DECAY  = 0.006;
+
+let alpha = 1;
+
+function initSim(nodes, edges) {
+  const W = window.innerWidth, H = window.innerHeight;
+  // position nodes in rough clusters by type
+  const typeOrder = ['root','subdomain','ip','cname','port','endpoint','dns_record'];
+  simNodes = nodes.map((n, i) => {
+    const ti = typeOrder.indexOf(n.type);
+    const angle = (i / nodes.length) * Math.PI * 2;
+    const r = 150 + ti * 50;
+    return {
+      ...n,
+      x: W/2 + Math.cos(angle) * r + (Math.random()-0.5)*40,
+      y: H/2 + Math.sin(angle) * r + (Math.random()-0.5)*40,
+      vx: 0, vy: 0,
+      fx: null, fy: null, // pinned?
+    };
+  });
+
+  const nodeIdx = {};
+  simNodes.forEach((n,i) => nodeIdx[n.id] = i);
+
+  simEdges = edges.map(e => ({
+    ...e,
+    si: nodeIdx[e.source],
+    ti: nodeIdx[e.target],
+  })).filter(e => e.si !== undefined && e.ti !== undefined);
+
+  alpha = 1;
+}
+
+function tickSim() {
+  const nn = simNodes.length;
+  if (!nn) return;
+  const W = window.innerWidth, H = window.innerHeight;
+
+  // repulsion
+  for (let i = 0; i < nn; i++) {
+    const a = simNodes[i];
+    if (a.fx !== null) { a.x = a.fx; a.y = a.fy; continue; }
+    for (let j = i+1; j < nn; j++) {
+      const b = simNodes[j];
+      let dx = a.x - b.x, dy = a.y - b.y;
+      let d2 = dx*dx + dy*dy || 1;
+      let d  = Math.sqrt(d2);
+      let f  = alpha * REPULSION / d2;
+      a.vx += dx/d * f;  a.vy += dy/d * f;
+      b.vx -= dx/d * f;  b.vy -= dy/d * f;
+    }
+  }
+
+  // link attraction
+  for (const e of simEdges) {
+    if (e.si === undefined || e.ti === undefined) continue;
+    const a = simNodes[e.si], b = simNodes[e.ti];
+    let dx = b.x - a.x, dy = b.y - a.y;
+    let d  = Math.sqrt(dx*dx + dy*dy) || 1;
+    let f  = alpha * (d - LINK_DIST) * 0.08;
+    let fx = dx/d * f, fy = dy/d * f;
+    if (a.fx === null) { a.vx += fx; a.vy += fy; }
+    if (b.fx === null) { b.vx -= fx; b.vy -= fy; }
+  }
+
+  // center gravity
+  for (const n of simNodes) {
+    if (n.fx !== null) continue;
+    n.vx += (W/2 - n.x) * CENTER_FORCE * alpha;
+    n.vy += (H/2 - n.y) * CENTER_FORCE * alpha;
+  }
+
+  // integrate + damp
+  for (const n of simNodes) {
+    if (n.fx !== null) { n.x = n.fx; n.y = n.fy; continue; }
+    n.vx *= DAMPING; n.vy *= DAMPING;
+    n.x  += n.vx;    n.y  += n.vy;
+  }
+
+  alpha = Math.max(0, alpha - ALPHA_DECAY);
+}
+
+// ── render ────────────────────────────────────────────────────────────────────
+let nodeEls = [], linkEls = [], lblEls = [], labelEls = [];
+
+function buildDOM() {
+  gLinks.innerHTML = '';
+  gLbls.innerHTML  = '';
+  gNodes.innerHTML = '';
+  nodeEls = []; linkEls = []; lblEls = []; labelEls = [];
+
+  // links
+  for (const e of simEdges) {
+    const line = svgEl('line', {
+      class: 'link-line',
+      'data-src': e.source, 'data-tgt': e.target,
+    });
+    gLinks.appendChild(line);
+
+    const lbl = svgEl('text', {
+      class: 'link-label-text',
+      'text-anchor': 'middle',
+    });
+    lbl.textContent = e.label || '';
+    gLbls.appendChild(lbl);
+    lblEls.push({ line, lbl, e });
+    linkEls.push(line);
+  }
+
+  // nodes
+  for (let i = 0; i < simNodes.length; i++) {
+    const n    = simNodes[i];
+    const cfg  = TYPE_CFG[n.type] || {};
+    const r    = cfg.r || 7;
+    const col  = cfg.color || '#888';
+
+    const g = svgEl('g', {
+      class: 'node-g',
+      'data-id': n.id, 'data-type': n.type,
+      style: `cursor:pointer`,
+    });
+
+    // outer glow ring for important nodes
+    if (cfg.glow) {
+      const glow = svgEl('circle', {
+        r: r + 5,
+        fill: col + '22',
+        stroke: col + '44',
+        'stroke-width': '1',
+        filter: `url(#${cfg.glow})`,
+      });
+      g.appendChild(glow);
+    }
+
+    const circle = svgEl('circle', {
+      r,
+      fill: col + 'cc',
+      stroke: col,
+      'stroke-width': n.type === 'root' ? 2 : 1,
+      class: 'node-circle',
+    });
+    g.appendChild(circle);
+
+    const label = svgEl('text', {
+      class: 'node-label',
+      x: r + 5, y: 4,
+      'font-size': n.type === 'root' ? '11' : '9',
+    });
+    label.textContent = n.label.length > 28 ? n.label.slice(0,26)+'…' : n.label;
+    g.appendChild(label);
+
+    g.addEventListener('click', ev => { ev.stopPropagation(); selectNode(n.id); });
+    g.addEventListener('mouseenter', () => {
+      document.getElementById('sb-hover').textContent = `${n.type}: ${n.label}`;
+    });
+    g.addEventListener('mouseleave', () => {
+      document.getElementById('sb-hover').textContent = '';
+    });
+
+    // drag
+    let dragging = false, dsx, dsy;
+    g.addEventListener('mousedown', ev => {
+      ev.stopPropagation();
+      dragging = true;
+      n.fx = n.x; n.fy = n.y;
+      dsx = ev.clientX; dsy = ev.clientY;
+      alpha = Math.max(alpha, 0.3);
+      const onMove = e2 => {
+        if (!dragging) return;
+        const dx = (e2.clientX - dsx) / transform.k;
+        const dy = (e2.clientY - dsy) / transform.k;
+        n.fx = n.x + dx; n.fy = n.y + dy;
+        n.x = n.fx; n.y = n.fy;
+        alpha = Math.max(alpha, 0.2);
+      };
+      const onUp = () => {
+        dragging = false;
+        n.fx = null; n.fy = null;
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    });
+
+    gNodes.appendChild(g);
+    nodeEls.push({ g, n, circle, label, r });
+    labelEls.push(label);
+  }
+}
+
+function updatePositions() {
+  const tstr = `translate(${transform.x},${transform.y}) scale(${transform.k})`;
+  gLinks.setAttribute('transform', tstr);
+  gLbls.setAttribute('transform', tstr);
+  gNodes.setAttribute('transform', tstr);
+
+  for (let i = 0; i < simNodes.length; i++) {
+    const { g, n, circle } = nodeEls[i];
+    if (!g) continue;
+    const visible = !hiddenTypes.has(n.type) &&
+      (!filterText || n.label.toLowerCase().includes(filterText) || n.id.toLowerCase().includes(filterText));
+    g.style.display    = visible ? '' : 'none';
+    label.style.display = (visible && showLabels) ? '' : 'none';
+
+    g.setAttribute('transform', `translate(${n.x},${n.y})`);
+  }
+
+  for (const { line, lbl, e } of lblEls) {
+    const src = simNodes[e.si], tgt = simNodes[e.ti];
+    if (!src || !tgt) continue;
+    const srcVis = !hiddenTypes.has(src.type);
+    const tgtVis = !hiddenTypes.has(tgt.type);
+    const vis = srcVis && tgtVis;
+    line.style.display = vis ? '' : 'none';
+    lbl.style.display  = (vis && showLabels) ? '' : 'none';
+    if (vis) {
+      line.setAttribute('x1', src.x); line.setAttribute('y1', src.y);
+      line.setAttribute('x2', tgt.x); line.setAttribute('y2', tgt.y);
+      lbl.setAttribute('x', (src.x+tgt.x)/2);
+      lbl.setAttribute('y', (src.y+tgt.y)/2 - 3);
+    }
+  }
+}
+
+function animate() {
+  tickSim();
+  updatePositions();
+  animFrame = requestAnimationFrame(animate);
+}
+
+// ── pan/zoom ──────────────────────────────────────────────────────────────────
+let isPanning = false, panStart = { x: 0, y: 0 };
+
+svg.addEventListener('mousedown', e => {
+  isPanning = true;
+  panStart = { x: e.clientX - transform.x, y: e.clientY - transform.y };
+  svg.classList.add('dragging');
+});
+window.addEventListener('mousemove', e => {
+  if (!isPanning) return;
+  transform.x = e.clientX - panStart.x;
+  transform.y = e.clientY - panStart.y;
+});
+window.addEventListener('mouseup', () => {
+  isPanning = false;
+  svg.classList.remove('dragging');
+});
+svg.addEventListener('wheel', e => {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.12 : 0.89;
+  const rect = svg.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  transform.x = mx - (mx - transform.x) * factor;
+  transform.y = my - (my - transform.y) * factor;
+  transform.k = Math.max(0.1, Math.min(8, transform.k * factor));
+}, { passive: false });
+
+function zoom(f) {
+  const W = window.innerWidth, H = window.innerHeight;
+  transform.x = W/2 - (W/2 - transform.x) * f;
+  transform.y = H/2 - (H/2 - transform.y) * f;
+  transform.k = Math.max(0.1, Math.min(8, transform.k * f));
+}
+function resetView() {
+  transform = { x: 0, y: 0, k: 1 };
+  alpha = 0.5;
+}
+function toggleLabels() {
+  showLabels = !showLabels;
+  document.getElementById('lbl-btn').style.opacity = showLabels ? 1 : 0.4;
+}
+
+// ── node selection / panel ────────────────────────────────────────────────────
+function selectNode(id) {
+  selectedId = id;
+  const node = simNodes.find(n => n.id === id);
+  if (!node) return;
+
+  // highlight connected edges
+  for (const { line } of lblEls) {
+    const src = line.getAttribute('data-src');
+    const tgt = line.getAttribute('data-tgt');
+    const hl  = src === id || tgt === id;
+    line.classList.toggle('highlighted', hl);
+    if (hl) line.setAttribute('marker-end', 'url(#arrow-hl)');
+    else    line.setAttribute('marker-end', 'url(#arrow)');
+  }
+
+  // connected nodes
+  const connected = [];
+  for (const e of simEdges) {
+    if (simNodes[e.si]?.id === id) connected.push({ node: simNodes[e.ti], via: e.label, dir: '→' });
+    if (simNodes[e.ti]?.id === id) connected.push({ node: simNodes[e.si], via: e.label, dir: '←' });
+  }
+
+  showPanel(node, connected);
+}
+
+function showPanel(node, connected) {
+  const cfg = TYPE_CFG[node.type] || {};
+  const col = cfg.color || '#888';
+
+  document.getElementById('panel-type').innerHTML =
+    `<span style="color:${col}">${node.type.toUpperCase()}</span>`;
+  document.getElementById('panel-title').textContent = node.label;
+
+  let body = '';
+  // data fields
+  if (node.data && Object.keys(node.data).length) {
+    body += `<div class="panel-section"><h5>Details</h5>`;
+
+    // port node: version banner
+    if (node.type === 'port' && node.data.version_str) {
+      body += `<div style="background:#1a2a1a;border:1px solid #3fb95044;border-radius:4px;
+                           padding:6px 8px;margin-bottom:8px;font-size:10px;color:#3fb950">
+        ${escHtml(node.data.version_str)}</div>`;
+    }
+    // nse_finding: full script output box
+    if (node.type === 'nse_finding' && node.data.output) {
+      body += `<div style="background:#1a1500;border:1px solid #f39c1244;border-radius:4px;
+                           padding:6px 8px;margin-bottom:8px;font-size:9px;
+                           color:#f39c12;white-space:pre-wrap;word-break:break-all;
+                           max-height:160px;overflow-y:auto">${escHtml(node.data.output)}</div>`;
+    }
+    // os_guess: accuracy badge
+    if (node.type === 'os_guess' && node.data.accuracy) {
+      const acc = parseInt(node.data.accuracy);
+      const col = acc >= 90 ? '#f85149' : acc >= 70 ? '#d29922' : '#8b949e';
+      body += `<div style="margin-bottom:8px">
+        <span style="background:${col}22;border:1px solid ${col}55;border-radius:3px;
+                     padding:3px 8px;font-size:10px;color:${col}">${acc}% confidence</span>
+      </div>`;
+    }
+
+    const SKIP = new Set(['output','version_str']);
+    for (const [k, v] of Object.entries(node.data)) {
+      if (SKIP.has(k)) continue;
+      if (v === null || v === undefined || v === '' || (Array.isArray(v) && !v.length)) continue;
+      const valClass = k === 'status' ? (v === 200 ? 'ok' : v >= 400 ? 'danger' : 'warn') : '';
+      let display = Array.isArray(v) ? v.join(', ') : String(v);
+      if (display.length > 120) display = display.slice(0,117) + '…';
+      body += `<div class="kv-row">
+        <span class="kv-key">${escHtml(k)}</span>
+        <span class="kv-val ${valClass}">${escHtml(display)}</span>
+      </div>`;
+    }
+    body += `</div>`;
+  }
+  // connections
+  if (connected.length) {
+    body += `<div class="panel-section"><h5>Connections (${connected.length})</h5>`;
+    for (const { node: cn, via, dir } of connected) {
+      const cc = (TYPE_CFG[cn.type] || {}).color || '#888';
+      body += `<div class="conn-item" onclick="selectNode('${escHtml(cn.id)}')">
+        <span class="conn-dot" style="background:${cc}"></span>
+        <span class="conn-label">${escHtml(cn.label)}</span>
+        <span class="conn-edge">${dir} ${escHtml(via)}</span>
+      </div>`;
+    }
+    body += `</div>`;
+  }
+
+  document.getElementById('panel-body').innerHTML = body;
+  document.getElementById('panel').classList.add('visible');
+}
+
+function closePanel() {
+  document.getElementById('panel').classList.remove('visible');
+  selectedId = null;
+  for (const { line } of lblEls) {
+    line.classList.remove('highlighted');
+    line.setAttribute('marker-end', 'url(#arrow)');
+  }
+}
+svg.addEventListener('click', closePanel);
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── legend ────────────────────────────────────────────────────────────────────
+function buildLegend(nodes) {
+  const counts = {};
+  for (const n of nodes) counts[n.type] = (counts[n.type] || 0) + 1;
+
+  const container = document.getElementById('legend-items');
+  container.innerHTML = '';
+  for (const [type, count] of Object.entries(counts)) {
+    const col = (TYPE_CFG[type] || {}).color || '#888';
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    item.dataset.type = type;
+    item.innerHTML = `
+      <span class="legend-dot" style="background:${col}"></span>
+      <span class="legend-label">${type}</span>
+      <span class="legend-count">${count}</span>`;
+    item.addEventListener('click', () => {
+      if (hiddenTypes.has(type)) hiddenTypes.delete(type);
+      else hiddenTypes.add(type);
+      item.classList.toggle('hidden', hiddenTypes.has(type));
+    });
+    container.appendChild(item);
+  }
+}
+
+// ── filter ────────────────────────────────────────────────────────────────────
+function filterNodes(text) {
+  filterText = text.toLowerCase().trim();
+}
+
+// ── load graph ────────────────────────────────────────────────────────────────
+function loadGraph(data) {
+  graphData = data;
+  const { meta, nodes, edges } = data;
+
+  // meta bar
+  document.getElementById('m-target').textContent = meta.target || '?';
+  document.getElementById('m-nodes').textContent  = meta.node_count || nodes.length;
+  document.getElementById('m-edges').textContent  = meta.edge_count || edges.length;
+  document.getElementById('m-ts').textContent     = meta.timestamp ? meta.timestamp.slice(0,16).replace('T',' ') : '?';
+  document.getElementById('m-dur').textContent    = meta.duration_s ? `${meta.duration_s}s` : '?';
+
+  // nmap badge
+  const nmapBadge = document.getElementById('m-nmap');
+  if (nmapBadge) {
+    nmapBadge.textContent  = meta.nmap_used ? '✓ nmap' : '✗ socket only';
+    nmapBadge.style.color  = meta.nmap_used ? '#3fb950' : '#d29922';
+  }
+  const rootBadge = document.getElementById('m-root');
+  if (rootBadge) {
+    rootBadge.textContent = meta.root_scan ? '✓ root' : 'non-root';
+    rootBadge.style.color = meta.root_scan ? '#3fb950' : '#8b949e';
+  }
+
+  initSim(nodes, edges);
+  buildDOM();
+  buildLegend(nodes);
+
+  // show UI
+  document.getElementById('loader').classList.add('gone');
+  document.getElementById('topbar').style.display   = 'flex';
+  document.getElementById('svg').style.display      = 'block';
+  document.getElementById('legend').style.display   = 'block';
+  document.getElementById('controls').style.display = 'flex';
+  document.getElementById('statusbar').style.display = 'flex';
+
+  if (animFrame) cancelAnimationFrame(animFrame);
+  animate();
+}
+
+// ── file drop / input ─────────────────────────────────────────────────────────
+const dropzone  = document.getElementById('dropzone');
+const fileInput = document.getElementById('file-input');
+
+dropzone.addEventListener('dragover',  e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault(); dropzone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) readFile(file);
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files[0]) readFile(fileInput.files[0]);
+});
+
+function readFile(file) {
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try { loadGraph(JSON.parse(ev.target.result)); }
+    catch(e) { alert('Invalid JSON: ' + e.message); }
+  };
+  reader.readAsText(file);
+}
+
+// ── URL param: ?graph=path.json ───────────────────────────────────────────────
+const urlGraph = new URLSearchParams(location.search).get('graph');
+if (urlGraph) {
+  fetch(urlGraph)
+    .then(r => r.json())
+    .then(loadGraph)
+    .catch(e => console.warn('Could not auto-load graph:', e));
+}
+
+// ── demo data ─────────────────────────────────────────────────────────────────
+function loadDemo() {
+  const demo = {
+    meta: {
+      target: "example.com",
+      timestamp: new Date().toISOString(),
+      duration_s: 12.3,
+      version: "2.0.0",
+      nmap_used: true,
+      root_scan: true,
+      node_count: 0, edge_count: 0
+    },
+    nodes: [
+      { id: "root:example.com",          label: "example.com",           type: "root",      data: { fqdn: "example.com" } },
+      { id: "sub:www.example.com",       label: "www.example.com",       type: "subdomain", data: { fqdn: "www.example.com",   ips: ["93.184.216.34"] } },
+      { id: "sub:api.example.com",       label: "api.example.com",       type: "subdomain", data: { fqdn: "api.example.com",   ips: ["93.184.216.35"] } },
+      { id: "sub:mail.example.com",      label: "mail.example.com",      type: "subdomain", data: { fqdn: "mail.example.com",  ips: ["93.184.216.36"] } },
+      { id: "sub:dev.example.com",       label: "dev.example.com",       type: "subdomain", data: { fqdn: "dev.example.com",   ips: ["10.0.0.5"] } },
+      { id: "sub:staging.example.com",   label: "staging.example.com",   type: "subdomain", data: { fqdn: "staging.example.com", ips: ["10.0.0.6"] } },
+      { id: "sub:admin.example.com",     label: "admin.example.com",     type: "subdomain", data: { fqdn: "admin.example.com", ips: ["93.184.216.40"] } },
+      { id: "sub:webhooks.example.com",  label: "webhooks.example.com",  type: "subdomain", data: { fqdn: "webhooks.example.com", ips: ["104.21.0.1"] } },
+      { id: "ip:93.184.216.34",          label: "93.184.216.34",         type: "ip",        data: { ip: "93.184.216.34", reverse_dns: "example.com", is_private: false } },
+      { id: "ip:93.184.216.35",          label: "93.184.216.35",         type: "ip",        data: { ip: "93.184.216.35", reverse_dns: "api.example.com", is_private: false } },
+      { id: "ip:10.0.0.5",               label: "10.0.0.5",              type: "ip",        data: { ip: "10.0.0.5", is_private: true } },
+      { id: "cname:example.cdn.net",     label: "example.cdn.net",       type: "cname",     data: { fqdn: "example.cdn.net" } },
+      { id: "port:93.184.216.34:80",     label: ":80",                   type: "port",      data: { port: 80,   service: "HTTP",  host: "93.184.216.34" } },
+      { id: "port:93.184.216.34:443",    label: ":443",                  type: "port",      data: { port: 443,  service: "HTTPS", host: "93.184.216.34" } },
+      { id: "port:93.184.216.34:22",     label: ":22",                   type: "port",      data: { port: 22,   service: "SSH",   host: "93.184.216.34" } },
+      { id: "port:93.184.216.35:443",    label: ":443",                  type: "port",      data: { port: 443,  service: "HTTPS", host: "93.184.216.35" } },
+      { id: "port:93.184.216.35:8080",   label: ":8080",                 type: "port",      data: { port: 8080, service: "HTTP-Alt", host: "93.184.216.35" } },
+      { id: "port:10.0.0.5:3000",        label: ":3000",                 type: "port",      data: { port: 3000, service: "Dev-HTTP", host: "10.0.0.5" } },
+      { id: "port:10.0.0.5:5432",        label: ":5432",                 type: "port",      data: { port: 5432, service: "PostgreSQL", host: "10.0.0.5" } },
+      { id: "endpoint:https://example.com/healthz",  label: "/healthz",  type: "endpoint",  data: { url: "https://example.com/healthz", status: 200, server: "nginx/1.24", content_type: "text/plain", interesting: true } },
+      { id: "endpoint:https://example.com/robots.txt", label: "/robots.txt", type: "endpoint", data: { url: "https://example.com/robots.txt", status: 200, server: "nginx/1.24", content_type: "text/plain", interesting: true } },
+      { id: "endpoint:https://api.example.com/v1",  label: "/v1",        type: "endpoint",  data: { url: "https://api.example.com/v1", status: 401, server: "cloudflare", interesting: false } },
+      { id: "endpoint:https://api.example.com/swagger-ui", label: "/swagger-ui", type: "endpoint", data: { url: "https://api.example.com/swagger-ui", status: 200, server: "cloudflare", interesting: true } },
+      { id: "endpoint:https://admin.example.com/",  label: "/",          type: "endpoint",  data: { url: "https://admin.example.com/", status: 403, server: "nginx", interesting: false } },
+      { id: "endpoint:https://dev.example.com/.env", label: "/.env",     type: "endpoint",  data: { url: "https://dev.example.com/.env", status: 200, server: "python/3.11", interesting: true } },
+      // nmap-specific nodes
+      { id: "os:93.184.216.34:Linux",   label: "Linux 5.x",      type: "os_guess",    data: { os_name: "Linux 5.4 - 5.11", accuracy: "94", host: "93.184.216.34" } },
+      { id: "os:10.0.0.5:Ubuntu",       label: "Ubuntu 22.04",   type: "os_guess",    data: { os_name: "Ubuntu Linux 22.04", accuracy: "87", host: "10.0.0.5" } },
+      { id: "nse:93.184.216.34:443:ssl-cert", label: "ssl-cert", type: "nse_finding", data: { script_id: "ssl-cert", output: "Subject: commonName=example.com\nIssuer: DigiCert\nNot valid before: 2024-01-01\nNot valid after: 2025-01-01", port: 443, host: "93.184.216.34" } },
+      { id: "nse:93.184.216.34:22:ssh-auth", label: "ssh-auth-methods", type: "nse_finding", data: { script_id: "ssh-auth-methods", output: "Supported authentication methods: publickey, password", port: 22, host: "93.184.216.34" } },
+      { id: "nse:10.0.0.5:5432:pgsql-info", label: "pgsql-info", type: "nse_finding", data: { script_id: "pgsql-brute", output: "Password authentication required\nprotocol version: 3.0", port: 5432, host: "10.0.0.5" } },
+      { id: "nse:93.184.216.35:8080:http-title", label: "http-title", type: "nse_finding", data: { script_id: "http-title", output: "Site doesn't have a title (application/json)", port: 8080, host: "93.184.216.35" } },
+    ],
+    edges: [
+      { source: "root:example.com",        target: "sub:www.example.com",      label: "subdomain" },
+      { source: "root:example.com",        target: "sub:api.example.com",      label: "subdomain" },
+      { source: "root:example.com",        target: "sub:mail.example.com",     label: "subdomain" },
+      { source: "root:example.com",        target: "sub:dev.example.com",      label: "subdomain" },
+      { source: "root:example.com",        target: "sub:staging.example.com",  label: "subdomain" },
+      { source: "root:example.com",        target: "sub:admin.example.com",    label: "subdomain" },
+      { source: "root:example.com",        target: "sub:webhooks.example.com", label: "subdomain" },
+      { source: "sub:www.example.com",     target: "cname:example.cdn.net",    label: "CNAME" },
+      { source: "sub:www.example.com",     target: "ip:93.184.216.34",         label: "A" },
+      { source: "sub:api.example.com",     target: "ip:93.184.216.35",         label: "A" },
+      { source: "sub:dev.example.com",     target: "ip:10.0.0.5",              label: "A" },
+      { source: "ip:93.184.216.34",        target: "port:93.184.216.34:80",    label: "port/HTTP" },
+      { source: "ip:93.184.216.34",        target: "port:93.184.216.34:443",   label: "port/HTTPS" },
+      { source: "ip:93.184.216.34",        target: "port:93.184.216.34:22",    label: "port/SSH" },
+      { source: "ip:93.184.216.35",        target: "port:93.184.216.35:443",   label: "port/HTTPS" },
+      { source: "ip:93.184.216.35",        target: "port:93.184.216.35:8080",  label: "port/HTTP-Alt" },
+      { source: "ip:10.0.0.5",             target: "port:10.0.0.5:3000",       label: "port/Dev-HTTP" },
+      { source: "ip:10.0.0.5",             target: "port:10.0.0.5:5432",       label: "port/PostgreSQL" },
+      { source: "sub:www.example.com",     target: "endpoint:https://example.com/healthz",   label: "200" },
+      { source: "sub:www.example.com",     target: "endpoint:https://example.com/robots.txt", label: "200" },
+      { source: "sub:api.example.com",     target: "endpoint:https://api.example.com/v1",    label: "401" },
+      { source: "sub:api.example.com",     target: "endpoint:https://api.example.com/swagger-ui", label: "200" },
+      { source: "sub:admin.example.com",   target: "endpoint:https://admin.example.com/",    label: "403" },
+      { source: "sub:dev.example.com",     target: "endpoint:https://dev.example.com/.env",  label: "200" },
+      // nmap edges
+      { source: "ip:93.184.216.34",  target: "os:93.184.216.34:Linux",         label: "OS 94%" },
+      { source: "ip:10.0.0.5",       target: "os:10.0.0.5:Ubuntu",             label: "OS 87%" },
+      { source: "port:93.184.216.34:443", target: "nse:93.184.216.34:443:ssl-cert",   label: "NSE" },
+      { source: "port:93.184.216.34:22",  target: "nse:93.184.216.34:22:ssh-auth",    label: "NSE" },
+      { source: "port:10.0.0.5:5432",     target: "nse:10.0.0.5:5432:pgsql-info",     label: "NSE" },
+      { source: "port:93.184.216.35:8080", target: "nse:93.184.216.35:8080:http-title", label: "NSE" },
+    ]
+  };
+  demo.meta.node_count = demo.nodes.length;
+  demo.meta.edge_count = demo.edges.length;
+  loadGraph(demo);
+}
+</script>
+</body>
+</html>
